@@ -273,20 +273,24 @@ def find_region():
 #     except Exception as e:
 #         return jsonify({'success': False, 'error': str(e)}), 500
 
+# 
+
+from datetime import timedelta
+import pytz
+from datetime import datetime
+
 @app.route('/get_available_times', methods=['POST'])
 def get_available_times():
     try:
-        from datetime import datetime, timedelta
+        ist = pytz.timezone('Asia/Kolkata')
+        now = datetime.now(ist)
 
-        now = datetime.now()
-
-        # 🔥 round UP to next 15-min slot
+        # round UP to next 15-min
         minutes = (now.minute // 15 + 1) * 15
         next_slot = now.replace(minute=0, second=0, microsecond=0) + timedelta(minutes=minutes)
 
-        # generate slots
         times = []
-        for i in range(50):  # keep same limit as before
+        for i in range(50):
             slot = next_slot + timedelta(minutes=15 * i)
             times.append(slot.strftime("%H:%M"))
 
