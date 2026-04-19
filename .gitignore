@@ -8,6 +8,8 @@ data/*
 # ignore raw Csv files
 data/**/*.csv
 
+# Do not track dvc storage
+dvc_storage/
 
 # Mac OS-specific storage files
 .DS_Store
