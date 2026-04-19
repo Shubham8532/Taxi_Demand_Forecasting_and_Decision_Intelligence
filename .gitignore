@@ -1,6 +1,13 @@
 # Data
+# ignore all the data
 data/*
+# but allow folders
+!data/**/
+# and allow dvc files
 !data/**/*.dvc
+# ignore raw Csv files
+data/**/*.csv
+
 
 # Mac OS-specific storage files
 .DS_Store
