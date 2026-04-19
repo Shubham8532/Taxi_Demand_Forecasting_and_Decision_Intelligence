@@ -1,12 +1,21 @@
-__pycache__/
-*.pyc
-.git/
-.gitignore
-
-.env
-venv/
+# env (CRITICAL)
 env/
+venv/
 env1/
 
-data/raw/
+# git
+.git
+
+# python cache
+__pycache__/
+*.pyc
+
+# dvc
 dvc_storage/
+
+# ignore all data first
+data/*
+
+# allow only what app needs
+!data/processed/final_data.csv
+!data/external/plot_data.csv

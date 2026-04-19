@@ -1,0 +1,11 @@
+ipython
+jupyterlab
+notebook
+matplotlib
+mkdocs
+pytest
+ruff
+tqdm
+typer
+loguru
+python-dotenv
