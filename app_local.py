@@ -8,9 +8,6 @@ import traceback
 import math
 import warnings
 import numpy as np
-from azure.storage.blob import BlobServiceClient
-import io
-import os
 
 warnings.filterwarnings('ignore')
 
@@ -74,32 +71,20 @@ def load_model():
 
     return model_cache
 
-print("Loading data from Azure Blob...")
 # ================= LOAD DATA =================
-
 def load_data():
     global data_cache
 
     if data_cache is None:
-        conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        container_name = "data"
+        root_path = Path(__file__).parent
 
-        blob_service = BlobServiceClient.from_connection_string(conn_str)
+        # plot data (for map)
+        df_plot = pd.read_csv(root_path / "data/external/plot_data.csv")
 
-        # Load plot_data from Blob
-        blob_plot = blob_service.get_blob_client(
-            container=container_name,
-            blob="plot_data.csv"
-        )
-        df_plot = pd.read_csv(io.BytesIO(blob_plot.download_blob().readall()))
+        # main dataset
+        df = pd.read_csv(root_path / "data/processed/final_data.csv")
 
-        # Load main (final_data) dataset from Blob
-        blob_main = blob_service.get_blob_client(
-            container=container_name,
-            blob="final_data.csv"
-        )
-        df = pd.read_csv(io.BytesIO(blob_main.download_blob().readall()))
-
+        # detect time column
         time_col = None
         for c in ["pickup_slot", "tpep_pickup_datetime", "pickup_datetime", "timestamp"]:
             if c in df.columns:
@@ -107,14 +92,18 @@ def load_data():
                 break
 
         if time_col is None:
-            raise ValueError(f"No time column found. Columns: {df.columns}")
+            raise ValueError(f"❌ No time column found. Columns: {df.columns}")
 
+        # convert datetime
         df[time_col] = pd.to_datetime(df[time_col], errors="coerce")
         df = df.dropna(subset=[time_col])
 
+        # sort + index
         df = df.sort_values(time_col).set_index(time_col)
 
-        print("Data loaded from Azure Blob")
+        print("✅ Data loaded")
+        # print("Time column:", time_col)
+        # print("Columns:", list(df.columns))
 
         data_cache = (df_plot, df)
 
@@ -375,7 +364,7 @@ def build_features_for_timestamp(df, timestamp):
 
     return X, current
 
-print("Predict Api hit")
+
 @app.route('/predict', methods=['POST'])
 def predict():
     try:

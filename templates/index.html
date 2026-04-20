@@ -605,21 +605,35 @@
             }
 
             try {
+                // 👇 Show loading so you know it's working
+                alert("⏳ Sending request...");
+
                 const response = await fetch('/predict', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ region_id, date, time })
                 });
+
+                // 👇 If backend crashes, this catches it
+                if (!response.ok) {
+                    const text = await response.text();
+                    alert("❌ Server error:\n" + text);
+                    return;
+                }
+
                 const data = await response.json();
+
+                // 👇 Always show what backend returned
+                alert("✅ Response received");
 
                 if (data.success) {
                     displayResults(data);
                 } else {
-                    alert(data.error);
+                    alert("❌ Backend error:\n" + data.error);
                 }
+
             } catch (error) {
-                console.error('Error:', error);
-                alert('Error making prediction');
+                alert("❌ Fetch failed:\n" + error);
             }
         }
 

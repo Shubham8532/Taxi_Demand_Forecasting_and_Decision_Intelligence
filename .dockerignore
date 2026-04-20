@@ -15,6 +15,7 @@ dvc_storage/
 
 # ignore all data first
 data/*
+*.csv
 
 # allow only what app needs
 !data/processed/final_data.csv
