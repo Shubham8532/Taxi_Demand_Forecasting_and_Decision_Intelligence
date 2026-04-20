@@ -18,10 +18,10 @@ jobs:
       with:
         python-version: '3.10'
       
-    -name: Install dependencies
+    - name: Install dependencies
       run: pip install -r requirements.txt
 
-    -name: Deploy to Azure
+    - name: Deploy to Azure
       uses: azure/webapps-deploy@v2
       with:
         app-name: taxi-forecast-app
