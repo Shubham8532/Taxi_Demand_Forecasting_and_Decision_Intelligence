@@ -362,9 +362,7 @@ def build_features_for_timestamp(df, timestamp):
 
 
 # ------ Load data for faster response ----
-print("Pre-loading data")
-load_data()
-print("Data Ready")
+
 
 print("Predict Api hit")
 
