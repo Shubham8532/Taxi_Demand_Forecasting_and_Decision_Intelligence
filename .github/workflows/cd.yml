@@ -21,10 +21,15 @@ jobs:
     - name: Install dependencies
       run: pip install -r requirements.txt
 
-    - name: Deploy to Azure
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{secrets.AZURE_CREDENTIALS}}
+
+    - name: Deploy to Azure Web App
       uses: azure/webapps-deploy@v2
       with:
-        app-name: taxi-forecast-decision-app
-        publish-profile: ${{secrets.AZURE_WEBAPP_PUBLISH_PROFILE}}
+        app-name: taxi-forecast-app
+        # publish-profile: ${{secrets.AZURE_WEBAPP_PUBLISH_PROFILE}}
 
         package: .
