@@ -30,6 +30,7 @@ jobs:
       uses: azure/webapps-deploy@v2
       with:
         app-name: taxi-forecast-app
+        resource-group: taxi-forecast-app_group
         # publish-profile: ${{secrets.AZURE_WEBAPP_PUBLISH_PROFILE}}
 
         package: .
