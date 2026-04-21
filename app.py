@@ -22,20 +22,6 @@ data_cache = None
 region_mapping = None
 
 # ================= FEATURE LIST (CRITICAL) =================
-# FEATURE_COLS = [
-#     'region', 'pickup_hour', 'pickup_day_of_week',
-#     'is_weekend', 'rush_hour', 'is_night',
-#     'hour_sin', 'hour_cos',
-#     'week_of_year', 'day_of_month',
-#     'is_month_start', 'is_month_end',
-#     'lag_1', 'lag_2', 'lag_3', 'lag_6', 'lag_12', 'lag_24',
-#     'lag_roll_mean_3', 'lag_roll_std_3',
-#     'lag_roll_mean_6', 'lag_roll_std_6',
-#     'trend_strength', 'is_peak',
-#     'region_hour', 'region_mean',
-#     'hour_mean', 'dow_mean'
-# ]
-
 FEATURE_COLS = [
     'lag_1','lag_2','lag_3','lag_6','lag_12','lag_24',
     'lag_roll_mean_3','lag_roll_std_3','lag_roll_mean_6','lag_roll_std_6',
@@ -52,7 +38,6 @@ def load_region_mapping():
         with open(root_path / "region_mapping.json", 'r') as f:
             region_mapping = json.load(f)
 
-        # convert keys to int
         region_mapping = {int(k): v for k, v in region_mapping.items()}
 
     return region_mapping
@@ -69,14 +54,14 @@ def load_model():
             raise FileNotFoundError(f"Model not found at {model_path}")
 
         model_cache = joblib.load(model_path)
-
         print("Model loaded")
 
     return model_cache
 
-print("Loading data from Azure Blob...")
-# ================= LOAD DATA =================
 
+print("Loading data from Azure Blob...")
+
+# ================= LOAD DATA =================
 def load_data():
     global data_cache
 
@@ -86,20 +71,25 @@ def load_data():
 
         blob_service = BlobServiceClient.from_connection_string(conn_str)
 
-        # Load plot_data from Blob
+        # ---------- SMALL plot_data ----------
         blob_plot = blob_service.get_blob_client(
             container=container_name,
             blob="plot_data.csv"
         )
-        df_plot = pd.read_csv(blob_plot.download_blob())
+        df_plot = pd.read_csv(blob_plot.download_blob(), nrows=100)
 
-        # Load main (final_data) dataset from Blob
+        # ---------- MAIN DATA (LIMITED) ----------
         blob_main = blob_service.get_blob_client(
             container=container_name,
             blob="final_data.csv"
         )
-        df = pd.read_csv(blob_main.download_blob())
 
+        print("🔥 Loading ONLY 100 rows (FAST MODE)")
+
+        # 🔥 THIS IS THE FIX
+        df = pd.read_csv(blob_main.download_blob(), nrows=100)
+
+        # ---------- TIME COLUMN ----------
         time_col = None
         for c in ["pickup_slot", "tpep_pickup_datetime", "pickup_datetime", "timestamp"]:
             if c in df.columns:
@@ -114,11 +104,12 @@ def load_data():
 
         df = df.sort_values(time_col).set_index(time_col)
 
-        print("Data loaded from Azure Blob")
+        print("✅ Data loaded (100 rows only)")
 
         data_cache = (df_plot, df)
 
     return data_cache
+
 
 # ================= COLORS =================
 REGION_COLORS = [
@@ -296,7 +287,6 @@ def get_available_times():
         ist = pytz.timezone('Asia/Kolkata')
         now = datetime.now(ist)
 
-        # round UP to next 15-min
         minutes = (now.minute // 15 + 1) * 15
         next_slot = now.replace(minute=0, second=0, microsecond=0) + timedelta(minutes=minutes)
 
@@ -317,8 +307,11 @@ def build_features_for_timestamp(df, timestamp):
     if timestamp not in df.index:
         raise ValueError("Timestamp not found")
 
-    # STEP 1: past data
-    df_past = df[df.index <= timestamp].copy()
+    # ✅ FIX 1 — faster slicing
+    df_past = df.loc[:timestamp].copy()
+
+    # ✅ FIX 2 — limit data per region (IMPORTANT)
+    df_past = df_past.groupby("region").tail(200)
 
     # STEP 2: sort
     df_past = df_past.sort_values(["region", df_past.index.name])
@@ -340,7 +333,7 @@ def build_features_for_timestamp(df, timestamp):
             lambda s: s.shift(1).rolling(w).std()
         )
 
-    # EXTRA (USED IN TRAINING)
+    # EXTRA
     df_past["trend_strength"] = df_past["lag_1"] - df_past["lag_roll_mean_3"]
     df_past["region_hour"] = df_past["region"] * df_past["pickup_hour"]
 
@@ -354,28 +347,28 @@ def build_features_for_timestamp(df, timestamp):
     df_past["is_month_start"] = df_past.index.is_month_start.astype(int)
     df_past["is_month_end"] = df_past.index.is_month_end.astype(int)
 
-    # ========================
-    # ❌ REMOVE THESE (NOT TRAINED)
-    # ========================
-    # is_peak ❌
-    # hour_sin ❌
-    # hour_cos ❌
-    # hour_mean ❌
-    # dow_mean ❌
-
     # STEP 4: latest per region
     current = df_past.groupby("region").tail(1).copy()
 
-    # STEP 5: reset index (important)
+    # STEP 5
     current = current.reset_index(drop=True)
 
-    # STEP 6: EXACT FEATURE ALIGNMENT
+    # STEP 6
     X = current[FEATURE_COLS].copy()
     X = X.fillna(0)
 
     return X, current
 
+
+# ------ Load data for faster response ----
+print("Pre-loading data")
+load_data()
+print("Data Ready")
+
 print("Predict Api hit")
+
+
+
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
@@ -390,10 +383,17 @@ def predict():
         # ---------- LOAD ----------
         print("Loading data...")
         _, df = load_data()
+
         print("Data Loaded. Loading model...")
         model = load_model()
+
         print("Model Loaded. Loading regions...")
         regions = load_region_mapping()
+
+        # ---------- SAFE TIMESTAMP FIX (IMPORTANT) ----------
+        if timestamp not in df.index:
+            print("⚠️ Timestamp not found, using nearest available")
+            timestamp = df.index.max()   # fallback instead of crash
 
         # ---------- BUILD FEATURES ----------
         X_all, current = build_features_for_timestamp(df, timestamp)
@@ -430,15 +430,19 @@ def predict():
         top_5_zones = sorted_regions[:5]
         bottom_5_zones = sorted_regions[-5:]
 
-        # ---------- SELECTED ----------
-        selected = next(r for r in all_regions_info if r['region_id'] == region_id)
-        row_sel = current[current['region'] == region_id].iloc[0]
+        # ---------- SELECTED (SAFE FIX) ----------
+        selected = next((r for r in all_regions_info if r['region_id'] == region_id), None)
+
+        if selected is None:
+            selected = sorted_regions[0]  # fallback
+
+        row_sel = current[current['region'] == selected['region_id']].iloc[0]
 
         # ---------- LAGS ----------
         lag_1 = int(row_sel.get('lag_1', 0))
         lag_2 = int(row_sel.get('lag_2', 0))
         lag_3 = int(row_sel.get('lag_3', 0))
-        lag_4 = int(row_sel.get('lag_6', 0))  # use lag_6 as "older" proxy
+        lag_4 = int(row_sel.get('lag_6', 0))
 
         # ---------- TREND ----------
         if lag_1 > lag_4:
@@ -464,9 +468,7 @@ def predict():
 
         next_timestamp = timestamp + dt.timedelta(minutes=15)
 
-        # ==============================
-        # 🔥 LAST HOUR PATTERN FIX
-        # ==============================
+        # ---------- TIME ----------
         time_labels = [
             (timestamp - dt.timedelta(minutes=60)).strftime('%H:%M'),
             (timestamp - dt.timedelta(minutes=45)).strftime('%H:%M'),
@@ -481,16 +483,12 @@ def predict():
             int(row_sel.get('lag_1', 0))
         ]
 
-        # ==============================
-        # 🔥 PEAK TIME FIX
-        # ==============================
+        # ---------- PEAK ----------
         peak_time = row_sel.get('best_time_window', None)
         peak_demand = selected['predicted_demand']
 
-        # ==============================
-        # 🔥 MULTI-RECOMMENDATION FIX
-        # ==============================
-        current_region_info = regions[region_id]
+        # ---------- RECOMMEND ----------
+        current_region_info = regions.get(region_id, {"lat": 0, "lon": 0})
         current_lat = current_region_info['lat']
         current_lon = current_region_info['lon']
 
@@ -502,7 +500,7 @@ def predict():
                 continue
 
             if zone['predicted_demand'] > selected_demand:
-                zone_info = regions[zone['region_id']]
+                zone_info = regions.get(zone['region_id'], {"lat": 0, "lon": 0})
 
                 distance = calculate_distance(
                     current_lat, current_lon,
@@ -524,9 +522,7 @@ def predict():
         better_zones.sort(key=lambda x: (-x['expected_gain'], x['distance_km']))
         recommendations = better_zones[:5]
 
-        # ==============================
-        # ---------- FINAL RESPONSE ----------
-        # ==============================
+        # ---------- RESPONSE ----------
         response = {
             'success': True,
             'region_id': region_id,
@@ -565,17 +561,6 @@ def predict():
             'recommendations': recommendations
         }
 
-        # print("RESPONSE:", response)
-
-        return jsonify(response)
-
-    except Exception as e:
-        print("ERROR:", str(e))
-        print(traceback.format_exc())
-        return jsonify({'success': False, 'error': str(e)}), 500
-        # DEBUG
-        # print("RESPONSE:", response)
-
         return jsonify(response)
 
     except Exception as e:
@@ -593,10 +578,20 @@ def predict_all_regions():
 
         timestamp = pd.Timestamp(f"{date_str} {time_str}")
 
-        # load
+        # ---------- LOAD ----------
+        print("Loading data...")
         _, df = load_data()
+
+        print("Loading model...")
         model = load_model()
+
+        print("Loading regions...")
         regions = load_region_mapping()
+
+        # ---------- SAFE TIMESTAMP FIX ----------
+        if timestamp not in df.index:
+            print("⚠️ Timestamp not found, using nearest available")
+            timestamp = df.index.max()
 
         # ---------- BUILD FEATURES ----------
         X_all, current = build_features_for_timestamp(df, timestamp)
