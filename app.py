@@ -76,7 +76,7 @@ def load_data():
             container=container_name,
             blob="plot_data.csv"
         )
-        df_plot = pd.read_csv(blob_plot.download_blob(), nrows=100)
+        df_plot = pd.read_csv(blob_plot.download_blob().readall()).sample(10000)
 
         # ---------- MAIN DATA (LIMITED) ----------
         blob_main = blob_service.get_blob_client(
@@ -87,7 +87,8 @@ def load_data():
         print("🔥 Loading ONLY 100 rows (FAST MODE)")
 
         # 🔥 THIS IS THE FIX
-        df = pd.read_csv(blob_main.download_blob(), nrows=100)
+        df = pd.read_csv(blob_main.download_blob().readall())
+        df = df.tail(10000)
 
         # ---------- TIME COLUMN ----------
         time_col = None
