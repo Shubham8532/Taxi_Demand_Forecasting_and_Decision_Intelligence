@@ -21,7 +21,7 @@ model_cache = None
 data_cache = None
 region_mapping = None
 
-# ================= FEATURE LIST (🔥 CRITICAL) =================
+# ================= FEATURE LIST (CRITICAL) =================
 # FEATURE_COLS = [
 #     'region', 'pickup_hour', 'pickup_day_of_week',
 #     'is_weekend', 'rush_hour', 'is_night',
@@ -66,11 +66,11 @@ def load_model():
         model_path = root_path / "models/xgb_model.pkl"
 
         if not model_path.exists():
-            raise FileNotFoundError(f"❌ Model not found at {model_path}")
+            raise FileNotFoundError(f"Model not found at {model_path}")
 
         model_cache = joblib.load(model_path)
 
-        print("✅ Model loaded")
+        print("Model loaded")
 
     return model_cache
 
@@ -91,14 +91,14 @@ def load_data():
             container=container_name,
             blob="plot_data.csv"
         )
-        df_plot = pd.read_csv(io.BytesIO(blob_plot.download_blob().readall()))
+        df_plot = pd.read_csv(blob_plot.download_blob())
 
         # Load main (final_data) dataset from Blob
         blob_main = blob_service.get_blob_client(
             container=container_name,
             blob="final_data.csv"
         )
-        df = pd.read_csv(io.BytesIO(blob_main.download_blob().readall()))
+        df = pd.read_csv(blob_main.download_blob())
 
         time_col = None
         for c in ["pickup_slot", "tpep_pickup_datetime", "pickup_datetime", "timestamp"]:
@@ -388,8 +388,11 @@ def predict():
         timestamp = pd.Timestamp(f"{date_str} {time_str}")
 
         # ---------- LOAD ----------
+        print("Loading data...")
         _, df = load_data()
+        print("Data Loaded. Loading model...")
         model = load_model()
+        print("Model Loaded. Loading regions...")
         regions = load_region_mapping()
 
         # ---------- BUILD FEATURES ----------
@@ -562,21 +565,21 @@ def predict():
             'recommendations': recommendations
         }
 
-        # print("🚀 RESPONSE:", response)
+        # print("RESPONSE:", response)
 
         return jsonify(response)
 
     except Exception as e:
-        print("🔥 ERROR:", str(e))
+        print("ERROR:", str(e))
         print(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)}), 500
         # DEBUG
-        # print("🚀 RESPONSE:", response)
+        # print("RESPONSE:", response)
 
         return jsonify(response)
 
     except Exception as e:
-        print("🔥 ERROR:", str(e))
+        print("ERROR:", str(e))
         print(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -631,7 +634,7 @@ def predict_all_regions():
         return jsonify({'success': True, 'regions': results})
 
     except Exception as e:
-        print("🔥 ERROR:", str(e))
+        print("ERROR:", str(e))
         print(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)}), 500
 
