@@ -1,10 +1,47 @@
-# Uber Demand Forecasting
+# Spatial-Temporal Taxi Demand Forecasting & Decision Intelligence System
 
 <a target="_blank" href="https://cookiecutter-data-science.drivendata.org/">
     <img src="https://img.shields.io/badge/CCDS-Project%20template-328F97?logo=cookiecutter" />
 </a>
 
-A short description of the project.
+Built an end-to-end spatial-temporal machine learning system for taxi demand forecasting and operational decision intelligence using large-scale trip datasets.
+
+The system combines time-series forecasting, spatial clustering, and feature engineering to predict region-wise taxi demand patterns and generate actionable insights such as surge detection, hotspot identification, and driver allocation recommendations.
+
+## Features
+
+- Spatial-temporal taxi demand forecasting
+- Region-wise demand prediction using geo-spatial clustering
+- Time-series feature engineering with lag and rolling-window features
+- Peak-hour demand pattern analysis
+- Demand hotspot and surge detection
+- Decision intelligence layer for driver allocation recommendations
+- Scalable preprocessing workflows for large-scale trip datasets
+
+## Tech Stack
+
+- Python
+- Pandas
+- NumPy
+- Scikit-learn
+- XGBoost
+- TensorFlow
+- MLflow
+- DVC
+- FastAPI
+- Azure
+
+## Use Case
+
+This project helps forecast taxi demand across different city regions using historical trip data, temporal trends, and spatial clustering techniques. The generated predictions and analytical insights can support intelligent fleet management, demand balancing, and operational optimization for ride-sharing platforms.
+
+## Future Improvements
+
+- Real-time streaming inference
+- Distributed training pipelines
+- Advanced geo-spatial modeling
+- GPU-accelerated forecasting
+- Dynamic pricing optimization
 
 ## Project Organization
 
