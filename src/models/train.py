@@ -1,4 +1,11 @@
-"""Training and Optuna model selection pipeline."""
+"""Training pipeline matching notebook 6's final approach.
+
+Key differences from the previous version:
+- Uses ``log1p(y)`` target transform (notebook 6's key trick)
+- Uses notebook 6's exact XGB hyperparameters as defaults
+- Generates ``region_inference_stats.pkl`` after training
+- Feature engineering delegated to ``src.features.feature_engineering``
+"""
 
 from __future__ import annotations
 
@@ -10,315 +17,143 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LinearRegression, Ridge
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder
 
 from src.data.load_data import load_or_build_train_test, resolve_project_paths
-from src.features.feature_engineering import prepare_model_features, time_based_validation_split
+from src.features.feature_engineering import prepare_train_test_features
+from src.inference.realtime import build_region_stats
 from src.utils.metrics import evaluate_metrics
 
 logger = logging.getLogger(__name__)
 
 try:
-    import optuna
-except Exception:  # pragma: no cover - optional dependency
-    optuna = None
-
-try:
     from xgboost import XGBRegressor
-
     HAS_XGB = True
-except Exception:  # pragma: no cover - optional dependency
+except ImportError:
     HAS_XGB = False
     XGBRegressor = None
-
-try:
-    import mlflow
-
-    HAS_MLFLOW = True
-except Exception:  # pragma: no cover - optional dependency
-    HAS_MLFLOW = False
-    mlflow = None
 
 
 @dataclass
 class TrainingOutputs:
-    """Container for train run outputs."""
+    """Container for training run outputs."""
 
-    best_model_name: str
-    best_params: dict[str, Any]
-    best_value: float
-    pipeline: Pipeline
+    model: Any
     metrics_summary: pd.DataFrame
-    leaderboard: pd.DataFrame
-    predictions: pd.DataFrame
     model_path: Path
-    leaderboard_path: Path
-    metrics_path: Path
-    predictions_path: Path
+    stats_path: Path
+    feature_cols: list[str]
+    region_smooth_map: pd.Series
 
 
-def build_preprocessor(cat_cols: list[str], num_cols: list[str]) -> ColumnTransformer:
-    """Build model preprocessor from categorical/numeric columns."""
-    numeric_pipeline = Pipeline([("imputer", SimpleImputer(strategy="median"))])
-    categorical_pipeline = Pipeline(
-        [
-            ("imputer", SimpleImputer(strategy="most_frequent")),
-            ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
-        ]
-    )
-
-    transformers = []
-    if cat_cols:
-        transformers.append(("cat", categorical_pipeline, cat_cols))
-    if num_cols:
-        transformers.append(("num", numeric_pipeline, num_cols))
-
-    return ColumnTransformer(transformers=transformers, remainder="drop")
-
-
-def make_model_from_trial(trial, random_state: int = 42):
-    """Model factory with same search space as notebook."""
-    options = ["LR", "RIDGE", "RF", "GBR"]
-    if HAS_XGB:
-        options.append("XGBR")
-    model_name = trial.suggest_categorical("model_name", options)
-
-    if model_name == "LR":
-        model = LinearRegression()
-    elif model_name == "RIDGE":
-        alpha = trial.suggest_float("ridge_alpha", 0.1, 200.0, log=True)
-        model = Ridge(alpha=alpha, random_state=random_state)
-    elif model_name == "RF":
-        n_estimators = trial.suggest_int("rf_n_estimators", 100, 400, step=50)
-        max_depth = trial.suggest_int("rf_max_depth", 5, 24)
-        min_samples_leaf = trial.suggest_int("rf_min_samples_leaf", 1, 8)
-        model = RandomForestRegressor(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            min_samples_leaf=min_samples_leaf,
-            random_state=random_state,
-            n_jobs=-1,
-        )
-    elif model_name == "GBR":
-        n_estimators = trial.suggest_int("gbr_n_estimators", 80, 400, step=40)
-        learning_rate = trial.suggest_float("gbr_learning_rate", 0.01, 0.2, log=True)
-        max_depth = trial.suggest_int("gbr_max_depth", 2, 8)
-        subsample = trial.suggest_float("gbr_subsample", 0.6, 1.0)
-        model = GradientBoostingRegressor(
-            n_estimators=n_estimators,
-            learning_rate=learning_rate,
-            max_depth=max_depth,
-            subsample=subsample,
-            random_state=random_state,
-        )
-    else:
-        n_estimators = trial.suggest_int("xgb_n_estimators", 120, 500, step=40)
-        learning_rate = trial.suggest_float("xgb_learning_rate", 0.01, 0.2, log=True)
-        max_depth = trial.suggest_int("xgb_max_depth", 3, 10)
-        subsample = trial.suggest_float("xgb_subsample", 0.6, 1.0)
-        colsample_bytree = trial.suggest_float("xgb_colsample", 0.6, 1.0)
-        model = XGBRegressor(
-            n_estimators=n_estimators,
-            learning_rate=learning_rate,
-            max_depth=max_depth,
-            subsample=subsample,
-            colsample_bytree=colsample_bytree,
-            objective="reg:squarederror",
-            random_state=random_state,
-            n_jobs=-1,
-        )
-    return model_name, model
-
-
-def _build_objective(
-    X_fit: pd.DataFrame,
-    y_fit: pd.Series,
-    X_valid: pd.DataFrame,
-    y_valid: pd.Series,
-    preprocessor: ColumnTransformer,
-    random_state: int,
-    use_mlflow: bool,
-):
-    def objective(trial):
-        model_name, model = make_model_from_trial(trial, random_state=random_state)
-        pipeline = Pipeline([("prep", preprocessor), ("model", model)])
-
-        sample_size = min(50_000, len(X_fit))
-        if sample_size < len(X_fit):
-            rng = np.random.default_rng(random_state + trial.number)
-            idx = rng.choice(len(X_fit), size=sample_size, replace=False)
-            X_fit_sample = X_fit.iloc[idx]
-            y_fit_sample = y_fit.iloc[idx]
-        else:
-            X_fit_sample = X_fit
-            y_fit_sample = y_fit
-
-        if use_mlflow and HAS_MLFLOW:
-            mlflow.start_run(nested=True)
-            mlflow.log_param("model_name", model_name)
-
-        pipeline.fit(X_fit_sample, y_fit_sample)
-        y_pred_valid = pipeline.predict(X_valid)
-        metrics = evaluate_metrics(y_valid, y_pred_valid)
-
-        if metrics["MAPE"] < 1e-3:
-            raise ValueError(f"Leakage suspected: unrealistically low validation MAPE={metrics['MAPE']:.3e}")
-
-        if use_mlflow and HAS_MLFLOW:
-            for k, v in metrics.items():
-                mlflow.log_metric(f"valid_{k}", v)
-            mlflow.log_params(model.get_params())
-            mlflow.end_run()
-
-        return metrics["MAPE"]
-
-    return objective
-
-
-def run_optuna(
-    X_fit: pd.DataFrame,
-    y_fit: pd.Series,
-    X_valid: pd.DataFrame,
-    y_valid: pd.Series,
-    preprocessor: ColumnTransformer,
-    n_trials: int = 80,
-    random_state: int = 42,
-    use_mlflow: bool = False,
-) -> tuple[Any, pd.DataFrame]:
-    """Run Optuna model search and return study + leaderboard."""
-    if optuna is None:
-        raise ImportError("optuna is not installed. Add it to your environment to run model search.")
-
-    objective = _build_objective(
-        X_fit=X_fit,
-        y_fit=y_fit,
-        X_valid=X_valid,
-        y_valid=y_valid,
-        preprocessor=preprocessor,
-        random_state=random_state,
-        use_mlflow=use_mlflow,
-    )
-
-    study = optuna.create_study(
-        study_name="model_selection",
-        direction="minimize",
-        sampler=optuna.samplers.TPESampler(seed=random_state, multivariate=True),
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=10),
-    )
-
-    if use_mlflow and HAS_MLFLOW:
-        with mlflow.start_run(run_name="model_selection_optuna"):
-            study.optimize(objective, n_trials=n_trials, n_jobs=1, show_progress_bar=True, catch=(ValueError,))
-            mlflow.log_params(study.best_params)
-            mlflow.log_metric("best_valid_MAPE", study.best_value)
-    else:
-        study.optimize(objective, n_trials=n_trials, n_jobs=1, show_progress_bar=True, catch=(ValueError,))
-
-    trials_df = study.trials_dataframe()
-    leaderboard_cols = ["number", "value", "params_model_name", "state"]
-    leaderboard = trials_df[[c for c in leaderboard_cols if c in trials_df.columns]].copy()
-    leaderboard = leaderboard.rename(columns={"value": "valid_MAPE"}).sort_values("valid_MAPE").reset_index(drop=True)
-    return study, leaderboard
-
-
-class _DummyTrial:
-    """Shim to rebuild model from Optuna best params."""
-
-    def __init__(self, params: dict[str, Any]):
-        self.params = params
-
-    def suggest_categorical(self, name, choices):
-        return self.params[name]
-
-    def suggest_int(self, name, low, high, step=1):
-        return int(self.params[name])
-
-    def suggest_float(self, name, low, high, log=False):
-        return float(self.params[name])
+# Notebook 6's final XGB hyperparameters
+DEFAULT_XGB_PARAMS = {
+    "n_estimators": 500,
+    "learning_rate": 0.1026,
+    "max_depth": 6,
+    "subsample": 0.8295,
+    "colsample_bytree": 0.9024,
+    "reg_alpha": 1.2257,
+    "reg_lambda": 0.8597,
+    "random_state": 42,
+    "n_jobs": -1,
+    "tree_method": "hist",
+}
 
 
 def train_model(
     project_root: Path | None = None,
-    n_trials: int = 80,
-    random_state: int = 42,
-    use_mlflow: bool = False,
+    xgb_params: dict | None = None,
     force_rebuild_split: bool = True,
 ) -> TrainingOutputs:
-    """Main training pipeline: load data -> engineer features -> Optuna -> train -> save artifacts."""
+    """Train XGBoost model with log1p target transform.
+
+    Reproduces notebook 6's final training cell exactly:
+    1. Load historical features → train/test split
+    2. Engineer features (lags, calendar, extras)
+    3. Train XGB on log1p(y_train)
+    4. Evaluate with expm1(predictions)
+    5. Save model + region inference stats
+
+    Parameters
+    ----------
+    project_root : Path, optional
+        Project root directory.
+    xgb_params : dict, optional
+        XGBoost hyperparameters. Uses notebook 6's tuned values if None.
+    force_rebuild_split : bool
+        Whether to rebuild train/test from historical data.
+
+    Returns
+    -------
+    TrainingOutputs
+        Trained model and metadata.
+    """
+    if not HAS_XGB:
+        raise ImportError("xgboost is required for training")
+
     paths = resolve_project_paths(project_root)
-    train_df, test_df = load_or_build_train_test(paths, force_rebuild_split=force_rebuild_split)
+    params = xgb_params or DEFAULT_XGB_PARAMS
 
-    features = prepare_model_features(train_df=train_df, test_df=test_df)
-    X_fit, y_fit, X_valid, y_valid = time_based_validation_split(
-        train_df=features.train_df,
-        X_train=features.X_train,
-        y_train=features.y_train,
-        time_col=features.time_col,
-        valid_ratio=0.2,
+    # 1. Load data
+    train_df, test_df = load_or_build_train_test(
+        paths, force_rebuild_split=force_rebuild_split
+    )
+    logger.info("Train: %s, Test: %s", train_df.shape, test_df.shape)
+
+    # 2. Feature engineering
+    features = prepare_train_test_features(train_df, test_df)
+    X_train = features["X_train"]
+    y_train = features["y_train"]
+    X_test = features["X_test"]
+    y_test = features["y_test"]
+
+    logger.info("Features: %d, X_train: %s", len(features["feature_cols"]), X_train.shape)
+
+    # 3. Train with log1p transform (notebook 6's approach)
+    model = XGBRegressor(**params)
+    y_train_log = np.log1p(y_train)
+    model.fit(X_train, y_train_log)
+
+    # 4. Evaluate
+    y_pred_train = np.clip(np.expm1(model.predict(X_train)), 0, None)
+    y_pred_test = np.clip(np.expm1(model.predict(X_test)), 0, None)
+
+    train_metrics = evaluate_metrics(y_train, y_pred_train)
+    test_metrics = evaluate_metrics(y_test, y_pred_test)
+    metrics_summary = pd.DataFrame([
+        {"split": "train", **train_metrics},
+        {"split": "test", **test_metrics},
+    ])
+
+    logger.info("Train MAPE: %.4f, Test MAPE: %.4f",
+                train_metrics["MAPE"], test_metrics["MAPE"])
+
+    # 5. Save model
+    model_path = paths.models_dir / "xgb_model.pkl"
+    joblib.dump(model, model_path)
+    metrics_summary.to_csv(paths.reports_dir / "metrics_summary.csv", index=False)
+
+    # 6. Build inference stats
+    data_path = next(
+        (p for p in [
+            paths.data_interim / "final_data.csv",
+            paths.data_interim / "historical_features.csv",
+        ] if p.exists()),
+        None,
     )
 
-    preprocessor = build_preprocessor(features.cat_cols, features.num_cols)
-    study, leaderboard = run_optuna(
-        X_fit=X_fit,
-        y_fit=y_fit,
-        X_valid=X_valid,
-        y_valid=y_valid,
-        preprocessor=preprocessor,
-        n_trials=n_trials,
-        random_state=random_state,
-        use_mlflow=use_mlflow,
-    )
-
-    best_trial = _DummyTrial(study.best_params)
-    best_model_name, best_model = make_model_from_trial(best_trial, random_state=random_state)
-    best_pipeline = Pipeline([("prep", preprocessor), ("model", best_model)])
-    best_pipeline.fit(features.X_train, features.y_train)
-
-    y_pred_train = np.clip(best_pipeline.predict(features.X_train), a_min=0, a_max=None)
-    y_pred_test = np.clip(best_pipeline.predict(features.X_test), a_min=0, a_max=None)
-
-    train_metrics = evaluate_metrics(features.y_train, y_pred_train)
-    test_metrics = evaluate_metrics(features.y_test, y_pred_test)
-    metrics_summary = pd.DataFrame([{"split": "train", **train_metrics}, {"split": "test", **test_metrics}])
-
-    predictions = pd.DataFrame(
-        {"actual_demand": features.y_test.values, "predicted_demand": y_pred_test},
-        index=features.y_test.index,
-    ).reset_index(drop=True)
-
-    model_path = paths.models_dir / "best_model_selection_pipeline.joblib"
-    leaderboard_path = paths.reports_dir / "model_selection_leaderboard.csv"
-    metrics_path = paths.reports_dir / "model_metrics_summary.csv"
-    predictions_path = paths.data_interim / "model_test_predictions.csv"
-
-    joblib.dump(best_pipeline, model_path)
-    leaderboard.to_csv(leaderboard_path, index=False)
-    metrics_summary.to_csv(metrics_path, index=False)
-    predictions.to_csv(predictions_path, index=False)
-
-    logger.info(
-        "Training complete. model=%s best_valid_mape=%.6f test_mape=%.6f",
-        best_model_name,
-        float(study.best_value),
-        float(test_metrics["MAPE"]),
-    )
+    stats_path = paths.models_dir / "region_inference_stats.pkl"
+    if data_path:
+        build_region_stats(data_path=data_path, output_path=stats_path)
+        logger.info("Inference stats saved to %s", stats_path)
+    else:
+        logger.warning("No data file found to build inference stats")
 
     return TrainingOutputs(
-        best_model_name=best_model_name,
-        best_params=study.best_params,
-        best_value=float(study.best_value),
-        pipeline=best_pipeline,
+        model=model,
         metrics_summary=metrics_summary,
-        leaderboard=leaderboard,
-        predictions=predictions,
         model_path=model_path,
-        leaderboard_path=leaderboard_path,
-        metrics_path=metrics_path,
-        predictions_path=predictions_path,
+        stats_path=stats_path,
+        feature_cols=features["feature_cols"],
+        region_smooth_map=features["region_smooth_map"],
     )
-

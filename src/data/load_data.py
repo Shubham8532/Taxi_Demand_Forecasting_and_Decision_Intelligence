@@ -166,6 +166,7 @@ def load_or_build_train_test(
     test_path = paths.data_processed / "test.csv"
 
     hist_candidates = [
+        paths.data_processed / "final_data.csv",
         paths.data_interim / "historical_features.csv",
         paths.data_interim / "final_data.csv",
         Path("/kaggle/working/historical_features.csv"),
