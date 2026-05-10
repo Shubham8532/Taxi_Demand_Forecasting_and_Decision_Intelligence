@@ -8,8 +8,6 @@ Built an end-to-end spatial-temporal machine learning system for taxi demand for
 
 The system combines time-series forecasting, spatial clustering, and feature engineering to predict region-wise taxi demand patterns and generate actionable insights such as surge detection, hotspot identification, and driver allocation recommendations.
 
-<<<<<<< HEAD
-=======
 ## Dashboard Preview
 
 ![NYC Taxi Demand Dashboard](assets/taxi-dashboard.png)
@@ -18,7 +16,6 @@ The system combines time-series forecasting, spatial clustering, and feature eng
 
 ![Zone Forecasting](assets/taxi-zone-analysis.png)
 
->>>>>>> 5774e87 (Improve README and add project dashboard screenshots)
 ## Features
 
 - Spatial-temporal taxi demand forecasting
