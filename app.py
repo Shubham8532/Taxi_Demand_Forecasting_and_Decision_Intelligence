@@ -183,6 +183,7 @@ def get_available_times():
 
 @app.route('/predict', methods=['POST'])
 def predict():
+    print("STEP 1")
     try:
         data = request.get_json()
 
@@ -194,12 +195,16 @@ def predict():
 
         # ---------- LOAD ----------
         _, df = load_data()
+        print("STEP 2")
         model = load_model()
+        print("STEP 3")
         regions = load_region_mapping()
+        print("STEP 4")
 
         print("Building features...")
         # ---------- BUILD FEATURES ----------
         X_all, current = build_features_for_timestamp(df, timestamp)
+        print("STEP 5")
 
         print("Features ready")
 
@@ -207,6 +212,7 @@ def predict():
 
         # ---------- PREDICT ----------
         y_pred_log = model.predict(X_all)
+        print("STEP 6")
         all_predictions = np.expm1(y_pred_log)
         all_predictions = np.clip(all_predictions, 0, None)
 
