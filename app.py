@@ -197,8 +197,13 @@ def predict():
         model = load_model()
         regions = load_region_mapping()
 
+        print("Building features...")
         # ---------- BUILD FEATURES ----------
         X_all, current = build_features_for_timestamp(df, timestamp)
+
+        print("Features ready")
+
+        print("Predicting...")
 
         # ---------- PREDICT ----------
         y_pred_log = model.predict(X_all)
@@ -415,6 +420,8 @@ def predict():
             else:
                 zone["badge"] = "📌 Consider"
 
+        print("Prediction complete")
+        
         # ==============================
         # ---------- FINAL RESPONSE ----------
         # ==============================

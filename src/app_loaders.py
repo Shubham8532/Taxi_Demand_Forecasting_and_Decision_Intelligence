@@ -46,6 +46,10 @@ def load_model():
 # ================= LOAD DATA =================
 def load_data():
     global data_cache
+    import time
+
+    start = time.time()
+    print("Loading data...")
 
     if data_cache is None:
         # root_path = Path(__file__).parent.parent
@@ -72,6 +76,8 @@ def load_data():
         df_plot = pd.read_csv(BytesIO(plot_blob.readall()))
         df = pd.read_csv(BytesIO(final_blob.readall()))
 
+        print("CSV loaded:", time.time() - start)
+
         # detect time column
         time_col = None
         for c in ["pickup_slot", "tpep_pickup_datetime", "pickup_datetime", "timestamp"]:
@@ -94,5 +100,7 @@ def load_data():
         # print("Columns:", list(df.columns))
 
         data_cache = (df_plot, df)
+
+        print("Finished:", time.time() - start)
 
     return data_cache
