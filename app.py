@@ -180,6 +180,15 @@ def get_available_times():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ---------- ADD HERE ----------
+@app.route("/ping")
+def ping():
+    return "OK"
+
+@app.route("/predict_test", methods=["POST"])
+def predict_test():
+    print("Reached predict_test")
+    return jsonify({"success": True})
 
 @app.route('/predict', methods=['POST'])
 def predict():

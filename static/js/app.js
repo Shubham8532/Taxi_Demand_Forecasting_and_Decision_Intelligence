@@ -210,8 +210,8 @@
                     loadingStep("Loading prediction model...", 20);
 
                 }
-
-                const response = await fetch('/predict', {
+                //  change back to predict
+                const response = await fetch('/predict_test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ region_id, date, time })
