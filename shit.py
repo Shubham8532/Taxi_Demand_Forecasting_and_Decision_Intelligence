@@ -1,3 +1,4 @@
+### 1. 2 hours ago
 import joblib
 import pandas as pd
 import json
@@ -136,6 +137,17 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
     return R * c
+
+# ===================CALCULATE SPEED ================
+AVG_SPEED_KMPH = 25
+
+def calculate_eta(distance_km):
+    """
+    Estimate travel time between two demand zones.
+    """
+    eta_minutes = (distance_km / AVG_SPEED_KMPH) * 60
+
+    return max(1, round(eta_minutes))
 
 # ================= VALIDATION =================
 def validate_coordinates(latitude, longitude):
@@ -497,6 +509,8 @@ def predict():
 
                 gain = zone['predicted_demand'] - selected_demand
 
+
+
                 better_zones.append({
                     "region_id": zone['region_id'],
                     "name": zone['name'],
@@ -504,11 +518,98 @@ def predict():
                     "lon": zone_info['lon'],
                     "predicted_demand": zone['predicted_demand'],
                     "distance_km": round(distance, 2),
-                    "expected_gain": gain
+                    "eta_minutes": calculate_eta(distance),
+                    "expected_gain": gain,
+                    "recommendation_score": 0
                 })
 
-        better_zones.sort(key=lambda x: (-x['expected_gain'], x['distance_km']))
+        # better_zones.sort(key=lambda x: (-x['expected_gain'], x['distance_km']))
+        # recommendations = better_zones[:5]
+
+        # ===========================================
+        # SMART RECOMMENDATION ENGINE
+        # ===========================================
+
+        if better_zones:
+
+            max_demand = max(z["predicted_demand"] for z in better_zones)
+            min_demand = min(z["predicted_demand"] for z in better_zones)
+
+            max_eta = max(z["eta_minutes"] for z in better_zones)
+            min_eta = min(z["eta_minutes"] for z in better_zones)
+
+            max_distance = max(z["distance_km"] for z in better_zones)
+            min_distance = min(z["distance_km"] for z in better_zones)
+
+            for zone in better_zones:
+
+                # --------------------
+                # Demand (higher better)
+                # --------------------
+                if max_demand == min_demand:
+                    demand_score = 100
+                else:
+                    demand_score = (
+                        (zone["predicted_demand"] - min_demand)
+                        / (max_demand - min_demand)
+                    ) * 100
+
+                # --------------------
+                # ETA (lower better)
+                # --------------------
+                if max_eta == min_eta:
+                    eta_score = 100
+                else:
+                    eta_score = (
+                        (max_eta - zone["eta_minutes"])
+                        / (max_eta - min_eta)
+                    ) * 100
+
+                # --------------------
+                # Distance (lower better)
+                # --------------------
+                if max_distance == min_distance:
+                    distance_score = 100
+                else:
+                    distance_score = (
+                        (max_distance - zone["distance_km"])
+                        / (max_distance - min_distance)
+                    ) * 100
+
+                # --------------------
+                # Final Recommendation Score
+                # --------------------
+                zone["recommendation_score"] = round(
+
+                    demand_score * 0.60 +
+
+                    eta_score * 0.25 +
+
+                    distance_score * 0.15
+
+                ,1)
+
+        better_zones.sort(
+            key=lambda x: x["recommendation_score"],
+            reverse=True
+        )
+
         recommendations = better_zones[:5]
+
+        # ========= RECOMMENDATION BADGE =========
+        badge_names = [
+            "Best Choice",
+            "Recommended",
+            "Good Option",
+            "Alternative",
+            "Consider"
+        ]
+
+        for i, zone in enumerate(recommendations):
+            if i < len(badge_names):
+                zone["badge"] = badge_names[i]
+            else:
+                zone["badge"] = "📌 Consider"
 
         # ==============================
         # ---------- FINAL RESPONSE ----------

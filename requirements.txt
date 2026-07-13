@@ -4,5 +4,17 @@ numpy>=1.26.0
 pandas>=2.1.0
 scikit-learn>=1.3.0
 xgboost>=2.0.0
-pytz
-gunicorn
+
+ipython
+jupyterlab
+loguru
+matplotlib
+mkdocs
+notebook
+pip
+pytest
+python-dotenv
+ruff
+tqdm
+typer
+-e .

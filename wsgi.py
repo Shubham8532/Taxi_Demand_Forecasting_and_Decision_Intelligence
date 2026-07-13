@@ -1,1 +1,1 @@
-from app import app
+from app_inference import app
