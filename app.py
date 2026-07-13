@@ -185,13 +185,12 @@ def get_available_times():
 def ping():
     return "OK"
 
+
+    # print("Reached predict_test")
+    # return jsonify({"success": True})
+
 @app.route("/predict_test", methods=["POST"])
 def predict_test():
-    print("Reached predict_test")
-    return jsonify({"success": True})
-
-@app.route('/predict', methods=['POST'])
-def predict():
     print("STEP 1")
     try:
         data = request.get_json()
