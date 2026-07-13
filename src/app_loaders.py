@@ -3,6 +3,10 @@ import joblib
 import pandas as pd
 
 from pathlib import Path
+# =========== AZURE STORAGE CONFIG ===========
+import os
+from io import BytesIO
+from azure.storage.blob import BlobServiceClient
 
 # ================= GLOBAL CACHE =================
 model_cache = None
@@ -44,13 +48,29 @@ def load_data():
     global data_cache
 
     if data_cache is None:
-        root_path = Path(__file__).parent.parent
+        # root_path = Path(__file__).parent.parent
 
-        # plot data (for map)
-        df_plot = pd.read_csv(root_path / "data/external/plot_data.csv")
+        # # plot data (for map)
+        # df_plot = pd.read_csv(root_path / "data/external/plot_data.csv")
 
-        # main dataset
-        df = pd.read_csv(root_path / "data/processed/final_data.csv")
+        # # main dataset
+        # df = pd.read_csv(root_path / "data/processed/final_data.csv")
+
+        # ================= LOAD DATA FROM AZURE STORAGE =================
+        connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+
+        if not connection_string:
+            raise Exception("AZURE_STORAGE_CONNECTION_STRING not found")
+
+        blob_service = BlobServiceClient.from_connection_string(connection_string)
+
+        container = blob_service.get_container_client("data")
+
+        plot_blob = container.download_blob("plot_data.csv")
+        final_blob = container.download_blob("final_data.csv")
+
+        df_plot = pd.read_csv(BytesIO(plot_blob.readall()))
+        df = pd.read_csv(BytesIO(final_blob.readall()))
 
         # detect time column
         time_col = None

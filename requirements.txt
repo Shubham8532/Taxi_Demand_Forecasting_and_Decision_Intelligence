@@ -18,3 +18,4 @@ ruff
 tqdm
 typer
 
+azure-storage-blob>=12.28.0
