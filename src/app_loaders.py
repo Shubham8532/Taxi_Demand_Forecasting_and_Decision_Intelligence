@@ -2,6 +2,9 @@ import json
 import joblib
 import pandas as pd
 
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 from pathlib import Path
 # =========== AZURE STORAGE CONFIG ===========
 import os
@@ -12,6 +15,8 @@ from azure.storage.blob import BlobServiceClient
 model_cache = None
 data_cache = None
 region_mapping = None
+prediction_cache = None
+scatter_cache = None
 
 # ================= REGION MAPPING =================
 def load_region_mapping():
@@ -70,30 +75,38 @@ def load_data():
 
         container = blob_service.get_container_client("data")
 
+        print("Downloading plot blob...")
         plot_blob = container.download_blob("plot_data.csv")
-        final_blob = container.download_blob("final_data.csv")
 
+        print("Downloading parquet blob...")
+        final_blob = container.download_blob("processed_features.parquet")
+
+        print("Reading plot CSV...")
         df_plot = pd.read_csv(BytesIO(plot_blob.readall()))
-        df = pd.read_csv(BytesIO(final_blob.readall()))
+        print("Plot CSV loaded")
+
+        print("Reading parquet...")
+        df = pd.read_parquet(BytesIO(final_blob.readall()))
+        print("Parquet loaded")
 
         print("CSV loaded:", time.time() - start)
 
-        # detect time column
-        time_col = None
-        for c in ["pickup_slot", "tpep_pickup_datetime", "pickup_datetime", "timestamp"]:
-            if c in df.columns:
-                time_col = c
-                break
+        # # detect time column
+        # time_col = None
+        # for c in ["pickup_slot", "tpep_pickup_datetime", "pickup_datetime", "timestamp"]:
+        #     if c in df.columns:
+        #         time_col = c
+        #         break
 
-        if time_col is None:
-            raise ValueError(f"❌ No time column found. Columns: {df.columns}")
+        # if time_col is None:
+        #     raise ValueError(f"❌ No time column found. Columns: {df.columns}")
 
-        # convert datetime
-        df[time_col] = pd.to_datetime(df[time_col], errors="coerce")
-        df = df.dropna(subset=[time_col])
+        # # convert datetime
+        # df[time_col] = pd.to_datetime(df[time_col], errors="coerce")
+        # df = df.dropna(subset=[time_col])
 
-        # sort + index
-        df = df.sort_values(time_col).set_index(time_col)
+        # # sort + index
+        # df = df.sort_values(time_col).set_index(time_col)
 
         print("✅ Data loaded")
         # print("Time column:", time_col)
@@ -104,3 +117,61 @@ def load_data():
         print("Finished:", time.time() - start)
 
     return data_cache
+
+def load_prediction_data():
+    global prediction_cache
+    import time
+
+    print("Cache empty:", prediction_cache is None)
+
+    if prediction_cache is None:
+
+        start = time.time()
+
+        connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+
+        blob_service = BlobServiceClient.from_connection_string(connection_string)
+        container = blob_service.get_container_client("data")
+
+        print("Downloading parquet blob...")
+        blob = container.download_blob("processed_features.parquet")
+
+        t1 = time.time()
+
+        data = blob.readall()
+
+        print(f"Downloaded in {time.time()-t1:.2f} sec")
+        print(f"Blob size = {len(data)/1024/1024:.1f} MB")
+
+        t2 = time.time()
+
+        prediction_cache = pd.read_parquet(BytesIO(data))
+
+        print(f"Read parquet in {time.time()-t2:.2f} sec")
+
+        print("Prediction parquet loaded")
+
+    else:
+        print("Using cached dataframe")
+
+    return prediction_cache
+
+def load_scatter_data():
+    global scatter_cache
+
+    if scatter_cache is None:
+
+        connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+
+        blob_service = BlobServiceClient.from_connection_string(connection_string)
+        container = blob_service.get_container_client("data")
+
+        print("Loading scatter CSV...")
+
+        blob = container.download_blob("plot_data_final_fix.parquet")
+
+        scatter_cache = pd.read_parquet(BytesIO(blob.readall()))
+
+        print("Scatter CSV loaded")
+
+    return scatter_cache

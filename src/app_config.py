@@ -13,6 +13,9 @@
 #     'hour_mean', 'dow_mean'
 # ]
 
+from turtle import pd
+
+
 FEATURE_COLS = [
     'lag_1','lag_2','lag_3','lag_6','lag_12','lag_24',
     'lag_roll_mean_3','lag_roll_std_3','lag_roll_mean_6','lag_roll_std_6',

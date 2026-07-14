@@ -17,5 +17,5 @@ python-dotenv
 ruff
 tqdm
 typer
-
+pyarrow
 azure-storage-blob>=12.28.0

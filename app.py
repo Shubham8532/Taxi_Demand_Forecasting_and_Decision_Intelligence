@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 from src.app_utils import (get_demand_color, calculate_distance, calculate_eta, validate_coordinates)
 from src.app_config import FEATURE_COLS
-from src.app_loaders import (load_model, load_data, load_region_mapping)
+from src.app_loaders import (load_model, load_prediction_data, load_scatter_data, load_region_mapping)
 from src.app_features import build_features_for_timestamp
 
 
@@ -42,12 +42,8 @@ def get_regions():
 @app.route('/get_scatter_points', methods=['GET'])
 def get_scatter_points():
     try:
-        df_plot, _ = load_data()
-
-        if len(df_plot) > 2000:
-            df_sample = df_plot.sample(n=2000, random_state=42)
-        else:
-            df_sample = df_plot
+        df_plot = load_scatter_data()
+        df_sample = df_plot
 
         scatter_points = []
         for _, row in df_sample.iterrows():
@@ -202,7 +198,7 @@ def predict_test():
         timestamp = pd.Timestamp(f"{date_str} {time_str}")
 
         # ---------- LOAD ----------
-        _, df = load_data()
+        df = load_prediction_data()
         print("STEP 2")
         model = load_model()
         print("STEP 3")
