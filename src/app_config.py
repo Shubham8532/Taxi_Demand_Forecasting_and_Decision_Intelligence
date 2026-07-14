@@ -13,7 +13,6 @@
 #     'hour_mean', 'dow_mean'
 # ]
 
-from turtle import pd
 
 
 FEATURE_COLS = [
